@@ -5,8 +5,9 @@ export function createTimesheetReminderTemplate(params: {
   nome: string;
   cognome: string;
   loginUrl: string;
+  logoCid?: string;
 }) {
-  const { nome, cognome, loginUrl } = params;
+  const { nome, cognome, loginUrl, logoCid } = params;
 
   return {
     subject: `Presency+ - Promemoria Inserimento Ore di Lavoro`,
@@ -24,9 +25,16 @@ export function createTimesheetReminderTemplate(params: {
       <td align="center" style="padding: 40px 0;">
         <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
 
+          ${logoCid ? `<!-- Logo -->
+          <tr>
+            <td style="padding: 30px 40px 20px; text-align: center; background-color: #ffffff; border-radius: 8px 8px 0 0;">
+              <img src="cid:${logoCid}" alt="Presency+ by Advisory+" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />
+            </td>
+          </tr>` : ''}
+
           <!-- Header -->
           <tr>
-            <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); border-radius: 8px 8px 0 0;">
+            <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); ${logoCid ? '' : 'border-radius: 8px 8px 0 0;'}">
               <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700;">
                 ⏰ Promemoria Inserimento Ore
               </h1>
@@ -144,6 +152,177 @@ Questa è una email automatica. Per favore non rispondere a questo messaggio.
 }
 
 /**
+ * Template email per conferma inserimento orari da parte dell'utente
+ */
+export function createHoursConfirmationTemplate(params: {
+  nome: string;
+  cognome: string;
+  email: string;
+  mese: string;
+  anno: number;
+  dataInvio: string;
+  adminUrl: string;
+  logoCid?: string;
+}) {
+  const { nome, cognome, email, mese, anno, dataInvio, adminUrl, logoCid } = params;
+
+  return {
+    subject: `Conferma Inserimento Orari - ${nome} ${cognome} (${mese} ${anno})`,
+    html: `
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conferma Inserimento Orari</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td align="center" style="padding: 40px 0;">
+        <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+
+          ${logoCid ? `<!-- Logo -->
+          <tr>
+            <td style="padding: 30px 40px 20px; text-align: center; background-color: #ffffff; border-radius: 8px 8px 0 0;">
+              <img src="cid:${logoCid}" alt="Presency+ by Advisory+" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />
+            </td>
+          </tr>` : ''}
+
+          <!-- Header -->
+          <tr>
+            <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #059669 0%, #10b981 100%); ${logoCid ? '' : 'border-radius: 8px 8px 0 0;'}">
+              <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700;">
+                ✅ Conferma Inserimento Orari
+              </h1>
+              <p style="margin: 10px 0 0; color: #d1fae5; font-size: 16px;">
+                Notifica Automatica Presency+
+              </p>
+            </td>
+          </tr>
+
+          <!-- Corpo -->
+          <tr>
+            <td style="padding: 40px;">
+              <p style="margin: 0 0 30px; color: #374151; font-size: 16px; line-height: 1.6;">
+                L'utente <strong>${nome} ${cognome}</strong> ha confermato il corretto inserimento degli orari di lavoro.
+              </p>
+
+              <!-- Box Info Dipendente -->
+              <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f9fafb; border: 2px solid #e5e7eb; border-radius: 8px; margin-bottom: 30px;">
+                <tr>
+                  <td style="padding: 24px;">
+                    <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                      <tr>
+                        <td style="padding: 8px 0;">
+                          <span style="color: #6b7280; font-size: 14px; font-weight: 600;">👤 Dipendente</span>
+                        </td>
+                        <td style="padding: 8px 0; text-align: right;">
+                          <span style="color: #1f2937; font-size: 16px; font-weight: 600;">${nome} ${cognome}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 8px 0;">
+                          <span style="color: #6b7280; font-size: 14px; font-weight: 600;">📧 Email</span>
+                        </td>
+                        <td style="padding: 8px 0; text-align: right;">
+                          <span style="color: #1f2937; font-size: 16px;">${email}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 8px 0;">
+                          <span style="color: #6b7280; font-size: 14px; font-weight: 600;">📅 Periodo</span>
+                        </td>
+                        <td style="padding: 8px 0; text-align: right;">
+                          <span style="color: #1f2937; font-size: 16px; font-weight: 600;">${mese} ${anno}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 8px 0;">
+                          <span style="color: #6b7280; font-size: 14px; font-weight: 600;">🕐 Data conferma</span>
+                        </td>
+                        <td style="padding: 8px 0; text-align: right;">
+                          <span style="color: #1f2937; font-size: 16px;">${dataInvio}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Box Azione -->
+              <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #dbeafe; border-left: 4px solid #3b82f6; border-radius: 4px; margin-bottom: 30px;">
+                <tr>
+                  <td style="padding: 16px;">
+                    <p style="margin: 0; color: #1e40af; font-size: 14px; line-height: 1.5;">
+                      <strong>📋 Azione suggerita:</strong> Accedi alla dashboard amministratore per verificare e validare le presenze inserite dall'utente.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Pulsante Accedi Dashboard -->
+              <table role="presentation" style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                <tr>
+                  <td align="center">
+                    <a href="${adminUrl}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);">
+                      Verifica Presenze
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Link testuale -->
+              <p style="margin: 0; color: #6b7280; font-size: 14px; text-align: center; line-height: 1.6;">
+                Oppure copia e incolla questo link nel tuo browser:<br>
+                <a href="${adminUrl}" style="color: #3b82f6; text-decoration: none; word-break: break-all;">${adminUrl}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 30px 40px; background-color: #f9fafb; border-radius: 0 0 8px 8px; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0 0 10px; color: #6b7280; font-size: 13px; text-align: center; line-height: 1.5;">
+                Questa è una email automatica generata dal sistema Presency+.
+              </p>
+              <p style="margin: 0; color: #6b7280; font-size: 13px; text-align: center;">
+                © ${new Date().getFullYear()} Advisory+ | Tutti i diritti riservati
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+    `,
+    text: `
+Conferma Inserimento Orari - Presency+
+
+L'utente ${nome} ${cognome} ha confermato il corretto inserimento degli orari di lavoro.
+
+DETTAGLI CONFERMA:
+- Dipendente: ${nome} ${cognome}
+- Email: ${email}
+- Periodo: ${mese} ${anno}
+- Data conferma: ${dataInvio}
+
+AZIONE SUGGERITA:
+Accedi alla dashboard amministratore per verificare e validare le presenze inserite dall'utente.
+
+Link dashboard: ${adminUrl}
+
+---
+Questa è una email automatica generata dal sistema Presency+.
+© ${new Date().getFullYear()} Advisory+ | Tutti i diritti riservati
+    `,
+  };
+}
+
+/**
  * Template email per invio credenziali nuovo utente
  */
 export function createWelcomeEmailTemplate(params: {
@@ -152,8 +331,9 @@ export function createWelcomeEmailTemplate(params: {
   email: string;
   password: string;
   loginUrl: string;
+  logoCid?: string;
 }) {
-  const { nome, cognome, email, password, loginUrl } = params;
+  const { nome, cognome, email, password, loginUrl, logoCid } = params;
 
   return {
     subject: `Benvenuto in Presency+ - Credenziali di accesso`,
@@ -171,9 +351,16 @@ export function createWelcomeEmailTemplate(params: {
       <td align="center" style="padding: 40px 0;">
         <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
 
+          ${logoCid ? `<!-- Logo -->
+          <tr>
+            <td style="padding: 30px 40px 20px; text-align: center; background-color: #ffffff; border-radius: 8px 8px 0 0;">
+              <img src="cid:${logoCid}" alt="Presency+ by Advisory+" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />
+            </td>
+          </tr>` : ''}
+
           <!-- Header -->
           <tr>
-            <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); border-radius: 8px 8px 0 0;">
+            <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); ${logoCid ? '' : 'border-radius: 8px 8px 0 0;'}">
               <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700;">
                 Benvenuto in Presency+
               </h1>
