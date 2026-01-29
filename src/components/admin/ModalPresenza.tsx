@@ -38,6 +38,7 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
   const [orariSettimanali, setOrariSettimanali] = useState<OrariSettimanali | null>(null);
   const [orePreviste, setOrePreviste] = useState<number>(0);
   const [isUserAdmin, setIsUserAdmin] = useState(false);
+  const [userHasLegge104, setUserHasLegge104] = useState(false);
   const [formData, setFormData] = useState({
     ingresso_mattina: presenza?.ingresso_mattina ? formatTime(presenza.ingresso_mattina) : '',
     uscita_mattina: presenza?.uscita_mattina ? formatTime(presenza.uscita_mattina) : '',
@@ -48,6 +49,7 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
     malattia: presenza?.malattia || 0,
     legge_104: presenza?.legge_104 || 0,
     ferie: presenza?.ferie || 0,
+    permessi: presenza?.permessi || 0,
     trasferta: presenza?.trasferta || false,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -77,13 +79,14 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
 
       const { data: userData } = await supabase
         .from('users')
-        .select('nome, cognome, orari_settimanali')
+        .select('nome, cognome, orari_settimanali, legge_104')
         .eq('id', userId)
-        .single() as { data: { nome: string; cognome: string; orari_settimanali: OrariSettimanali | null } | null };
+        .single() as { data: { nome: string; cognome: string; orari_settimanali: OrariSettimanali | null; legge_104: boolean } | null };
 
       if (userData) {
         setUserName(`${userData.nome} ${userData.cognome}`);
         setOrariSettimanali(userData.orari_settimanali);
+        setUserHasLegge104(userData.legge_104 || false);
 
         // Calcola ore previste per il giorno della settimana
         if (userData.orari_settimanali) {
@@ -157,11 +160,11 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
   }, [formData.ingresso_mattina, formData.uscita_mattina, formData.ingresso_pomeriggio, formData.uscita_pomeriggio, orePreviste, orePresenza]);
 
   // Validazione orario vs piano settimanale
-  const assenzeValid = { malattia: false, legge_104: false, ferie: false };
+  const assenzeValid = { malattia: false, legge_104: false, ferie: false, permessi: false };
   let canSave = true;
 
   if (orePreviste > 0 && orePresenza > 0) {
-    const totaleAssenze = (formData.malattia || 0) + (formData.legge_104 || 0) + (formData.ferie || 0);
+    const totaleAssenze = (formData.malattia || 0) + (formData.legge_104 || 0) + (formData.ferie || 0) + (formData.permessi || 0);
 
     if (orePresenza < orePreviste) {
       // Ore lavorate < ore previste: serve giustificazione con assenze
@@ -170,6 +173,7 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
         assenzeValid.malattia = true;
         assenzeValid.legge_104 = true;
         assenzeValid.ferie = true;
+        assenzeValid.permessi = true;
         canSave = false;
       }
     } else if (orePresenza > orePreviste && totaleAssenze > 0) {
@@ -178,6 +182,7 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
       if (formData.malattia > 0) assenzeValid.malattia = true;
       if (formData.legge_104 > 0) assenzeValid.legge_104 = true;
       if (formData.ferie > 0) assenzeValid.ferie = true;
+      if (formData.permessi > 0) assenzeValid.permessi = true;
       canSave = false;
     }
   }
@@ -220,6 +225,7 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
         malattia: formData.malattia,
         legge_104: formData.legge_104,
         ferie: formData.ferie,
+        permessi: formData.permessi,
         trasferta: formData.trasferta,
       };
 
@@ -250,6 +256,7 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
         malattia: formData.malattia,
         legge_104: formData.legge_104,
         ferie: formData.ferie,
+        permessi: formData.permessi,
         trasferta: formData.trasferta,
       }, { onConflict: 'user_id,data' });
 
@@ -433,18 +440,17 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Trasferta
+                Permessi (ore)
               </label>
-              <div className={`input flex items-center h-[42px] cursor-pointer`} onClick={() => handleChange('trasferta', !formData.trasferta)}>
-                <input
-                  type="checkbox"
-                  checked={formData.trasferta}
-                  onChange={(e) => handleChange('trasferta', e.target.checked)}
-                  className="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                  disabled={isLocked && !isUserAdmin}
-                />
-                <span className="ml-2 text-gray-700">Presente</span>
-              </div>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                max="24"
+                value={formData.permessi}
+                onChange={(e) => handleChange('permessi', parseFloat(e.target.value) || 0)}
+                className={assenzeValid.permessi ? 'input border-2 border-yellow-500 bg-yellow-50' : 'input'}
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -462,20 +468,6 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Legge 104 (ore)
-              </label>
-              <input
-                type="number"
-                step="0.5"
-                min="0"
-                max="24"
-                value={formData.legge_104}
-                onChange={(e) => handleChange('legge_104', parseFloat(e.target.value) || 0)}
-                className={assenzeValid.legge_104 ? 'input border-2 border-yellow-500 bg-yellow-50' : 'input'}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Ferie (ore)
               </label>
               <input
@@ -487,6 +479,34 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
                 onChange={(e) => handleChange('ferie', parseFloat(e.target.value) || 0)}
                 className={assenzeValid.ferie ? 'input border-2 border-yellow-500 bg-yellow-50' : 'input'}
               />
+            </div>
+            {userHasLegge104 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Legge 104 (ore)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="24"
+                  value={formData.legge_104}
+                  onChange={(e) => handleChange('legge_104', parseFloat(e.target.value) || 0)}
+                  className={assenzeValid.legge_104 ? 'input border-2 border-yellow-500 bg-yellow-50' : 'input'}
+                />
+              </div>
+            )}
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer h-[42px] mt-6">
+                <input
+                  type="checkbox"
+                  checked={formData.trasferta}
+                  onChange={(e) => handleChange('trasferta', e.target.checked)}
+                  className="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                  disabled={isLocked && !isUserAdmin}
+                />
+                <span className="text-sm font-medium text-gray-700">Trasferta</span>
+              </label>
             </div>
           </div>
         </div>
