@@ -80,6 +80,16 @@ export interface PresenzeLock {
   updated_at: string;
 }
 
+export interface PremioMensile {
+  id: string;
+  user_id: string;
+  anno: number;
+  mese: number;
+  importo: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // Tipi per le form
 export interface UserFormData {
   email: string;
@@ -178,6 +188,11 @@ export interface Database {
         Row: PresenzeLock;
         Insert: Omit<PresenzeLock, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<PresenzeLock, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      premi_mensili: {
+        Row: PremioMensile;
+        Insert: Omit<PremioMensile, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<PremioMensile, 'id' | 'created_at' | 'updated_at'>>;
       };
     };
   };
