@@ -434,7 +434,8 @@ export function ModalPresenza({ userId, data, presenza, onClose, onSave, isLocke
                 max="24"
                 value={formData.straordinari}
                 onChange={(e) => handleChange('straordinari', parseFloat(e.target.value) || 0)}
-                className="input"
+                className="input bg-gray-100 cursor-not-allowed"
+                readOnly
                 disabled={isLocked && !isUserAdmin}
               />
             </div>
