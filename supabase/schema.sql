@@ -7,6 +7,15 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================
+-- TIPI ENUM
+-- ============================================
+DO $$ BEGIN
+  CREATE TYPE sede_type AS ENUM ('Viareggio', 'Pietrasanta', 'Massa', 'Camaiore', 'Carrara');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+-- ============================================
 -- TABELLA: users
 -- Estende auth.users di Supabase con informazioni aggiuntive
 -- ============================================
@@ -16,6 +25,10 @@ CREATE TABLE IF NOT EXISTS public.users (
   nome TEXT NOT NULL,
   cognome TEXT NOT NULL,
   ruolo TEXT NOT NULL CHECK (ruolo IN ('amministratore', 'dipendente', 'collaboratore')),
+  legge_104 BOOLEAN DEFAULT false,
+  importo_trasferte NUMERIC(10,2) DEFAULT 0,
+  sede sede_type DEFAULT 'Viareggio',
+  orari_settimanali JSONB DEFAULT NULL,
   data_creazione TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   attivo BOOLEAN DEFAULT TRUE,
   CONSTRAINT valid_email CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
