@@ -53,8 +53,10 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
   const [selectionOre, setSelectionOre] = useState(8);
   const [submittingSelection, setSubmittingSelection] = useState(false);
 
-  // Approvazione batch (solo admin)
-  const [batchApproving, setBatchApproving] = useState<string | null>(null);
+  // Selezione item per approvazione (solo admin)
+  const [adminSelectionMode, setAdminSelectionMode] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set()); // Set di presenzaId
+  const [approvingSelected, setApprovingSelected] = useState(false);
 
   const supabase = createClient();
   const { showToast } = useToast();
@@ -372,47 +374,77 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
     }
   }
 
-  // Approva batch tutti i giorni pendenti di un utente (admin)
-  async function handleBatchApprova(utente: User) {
-    const itemsDaApprovare = ferieUtenti.filter(f => f.userId === utente.id && !f.validate);
-    if (itemsDaApprovare.length === 0) return;
-
-    // Raccoglie ID univoci delle presenze (odataPresenza)
-    const presenzaIds = [...new Set(itemsDaApprovare.map(f => f.odataPresenza))];
-
-    setBatchApproving(utente.id);
-    try {
-      const response = await fetch('/api/ferie/batch-approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          presenzaIds,
-          nome: utente.nome,
-          cognome: utente.cognome,
-          email: utente.email,
-        }),
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        // Aggiorna stato locale: tutti i giorni di questo utente diventano validati
-        setFerieUtenti(prev =>
-          prev.map(f =>
-            f.userId === utente.id ? { ...f, validate: true } : f
-          )
-        );
-        showToast(
-          `${result.count} giorni approvati${result.emailSent ? ' — email inviata' : ''}`,
-          'success'
-        );
+  // Toggle selezione item ferie (admin)
+  function handleToggleItem(presenzaId: string) {
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(presenzaId)) {
+        next.delete(presenzaId);
       } else {
-        showToast('Errore durante l\'approvazione batch', 'error');
+        next.add(presenzaId);
       }
+      return next;
+    });
+  }
+
+  function exitAdminSelectionMode() {
+    setAdminSelectionMode(false);
+    setSelectedItems(new Set());
+  }
+
+  // Approva i giorni selezionati (admin) — una email per dipendente
+  async function handleApprovaSelezionati() {
+    const itemsSelezionati = ferieUtenti.filter(
+      f => selectedItems.has(f.presenzaId) && !f.validate
+    );
+    if (itemsSelezionati.length === 0) return;
+
+    // Raggruppa per userId
+    const perUtente = new Map<string, { nome: string; cognome: string; email: string; presenzaIds: string[] }>();
+    for (const f of itemsSelezionati) {
+      if (!perUtente.has(f.userId)) {
+        perUtente.set(f.userId, { nome: f.nome, cognome: f.cognome, email: f.email, presenzaIds: [] });
+      }
+      const entry = perUtente.get(f.userId)!;
+      // Raccoglie odataPresenza univoci per questo utente
+      if (!entry.presenzaIds.includes(f.odataPresenza)) {
+        entry.presenzaIds.push(f.odataPresenza);
+      }
+    }
+
+    setApprovingSelected(true);
+    try {
+      let totaleApprovati = 0;
+      for (const [, utente] of perUtente) {
+        const response = await fetch('/api/ferie/batch-approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            presenzaIds: utente.presenzaIds,
+            nome: utente.nome,
+            cognome: utente.cognome,
+            email: utente.email,
+          }),
+        });
+        const result = await response.json();
+        if (result.success) totaleApprovati += result.count;
+      }
+
+      // Aggiorna stato locale: gli item selezionati diventano validati
+      const presenzaIdsApprovati = [...new Set(itemsSelezionati.map(f => f.odataPresenza))];
+      setFerieUtenti(prev =>
+        prev.map(f =>
+          presenzaIdsApprovati.includes(f.odataPresenza) ? { ...f, validate: true } : f
+        )
+      );
+
+      showToast(`${totaleApprovati} giorni approvati — email inviata`, 'success');
+      exitAdminSelectionMode();
     } catch (error) {
-      console.error('Errore approvazione batch:', error);
-      showToast('Errore durante l\'approvazione batch', 'error');
+      console.error('Errore approvazione selezionati:', error);
+      showToast('Errore durante l\'approvazione', 'error');
     } finally {
-      setBatchApproving(null);
+      setApprovingSelected(false);
     }
   }
 
@@ -540,6 +572,26 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
       return isPermesso ? 'text-blue-700' : 'text-amber-700';
     };
 
+    const isItemSelected = selectedItems.has(f.presenzaId);
+
+    // In admin selection mode: il badge è cliccabile e mostra stato selezione (solo per item non ancora validati)
+    if (isAdmin && adminSelectionMode && !f.validate) {
+      return (
+        <div
+          key={f.presenzaId}
+          onClick={(e) => { e.stopPropagation(); handleToggleItem(f.presenzaId); }}
+          className={`text-xs px-1 py-0.5 rounded flex items-center justify-between gap-1 cursor-pointer transition-all ${getColorClasses()} ${inModal ? 'py-2 px-3 text-sm' : 'truncate'} ${isItemSelected ? 'ring-2 ring-green-500' : 'hover:ring-2 hover:ring-green-300'}`}
+        >
+          <span className={inModal ? '' : 'truncate'}>
+            {isPermesso ? 'P: ' : ''}{f.cognome} {f.nome[0]}. {f.ore}h
+          </span>
+          <div className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center transition-colors ${isItemSelected ? 'bg-green-500 border-green-500' : 'border-current bg-white/50'}`}>
+            {isItemSelected && <Check className="h-2.5 w-2.5 text-white" />}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         key={f.presenzaId}
@@ -649,6 +701,21 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
             <ChevronRight className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Azioni admin */}
+        {isAdmin && (
+          <button
+            onClick={() => adminSelectionMode ? exitAdminSelectionMode() : setAdminSelectionMode(true)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-colors ${
+              adminSelectionMode
+                ? 'bg-green-600 text-white border-green-600 hover:bg-green-700'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <CheckCheck className="h-4 w-4" />
+            {adminSelectionMode ? 'Annulla selezione' : 'Seleziona per approvare'}
+          </button>
+        )}
 
         {/* Azioni dipendente */}
         {!isAdmin && (
@@ -763,6 +830,36 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
                   Salva
                 </button>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Pannello selezione approvazione admin */}
+      {adminSelectionMode && isAdmin && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="flex items-center gap-2 text-green-800 font-medium">
+              <CheckCheck className="h-5 w-5" />
+              <span>
+                {selectedItems.size === 0
+                  ? 'Clicca sui badge per selezionare i giorni da approvare'
+                  : `${selectedItems.size} giorn${selectedItems.size === 1 ? 'o' : 'i'} selezionat${selectedItems.size === 1 ? 'o' : 'i'}`}
+              </span>
+            </div>
+            {selectedItems.size > 0 && (
+              <button
+                onClick={handleApprovaSelezionati}
+                disabled={approvingSelected}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {approvingSelected ? (
+                  <LoadingSpinner className="h-4 w-4" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                Approva selezionati
+              </button>
             )}
           </div>
         </div>
@@ -952,46 +1049,27 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
                 const permessiUser = itemsUser.filter(f => f.tipo === 'permessi');
                 const tutteValidate = itemsUser.every(f => f.validate);
                 const nessunaValidata = itemsUser.every(f => !f.validate);
-                const pendentiUser = itemsUser.filter(f => !f.validate);
-                const isBatchApproving = batchApproving === u.id;
                 return (
-                  <div key={u.id} className="text-sm space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">{u.cognome} {u.nome[0]}.</span>
-                      <div className="flex items-center gap-2">
-                        {ferieUser.length > 0 && (
-                          <span className="text-amber-700 font-medium">
-                            F: {ferieUser.reduce((acc, f) => acc + f.ore, 0)}h
-                          </span>
-                        )}
-                        {permessiUser.length > 0 && (
-                          <span className="text-blue-700 font-medium">
-                            P: {permessiUser.reduce((acc, f) => acc + f.ore, 0)}h
-                          </span>
-                        )}
-                        {tutteValidate && (
-                          <Check className="h-4 w-4 text-green-600" />
-                        )}
-                        {!tutteValidate && !nessunaValidata && (
-                          <span className="text-xs text-gray-500">parziale</span>
-                        )}
-                      </div>
+                  <div key={u.id} className="text-sm flex justify-between items-center">
+                    <span className="text-gray-600">{u.cognome} {u.nome[0]}.</span>
+                    <div className="flex items-center gap-2">
+                      {ferieUser.length > 0 && (
+                        <span className="text-amber-700 font-medium">
+                          F: {ferieUser.reduce((acc, f) => acc + f.ore, 0)}h
+                        </span>
+                      )}
+                      {permessiUser.length > 0 && (
+                        <span className="text-blue-700 font-medium">
+                          P: {permessiUser.reduce((acc, f) => acc + f.ore, 0)}h
+                        </span>
+                      )}
+                      {tutteValidate && (
+                        <Check className="h-4 w-4 text-green-600" />
+                      )}
+                      {!tutteValidate && !nessunaValidata && (
+                        <span className="text-xs text-gray-500">parziale</span>
+                      )}
                     </div>
-                    {/* Pulsante approva tutti (solo admin, solo se ci sono giorni pendenti) */}
-                    {isAdmin && pendentiUser.length > 0 && (
-                      <button
-                        onClick={() => handleBatchApprova(u)}
-                        disabled={isBatchApproving}
-                        className="w-full flex items-center justify-center gap-1.5 text-xs py-1 px-2 bg-green-50 text-green-700 border border-green-200 rounded hover:bg-green-100 disabled:opacity-50 transition-colors"
-                      >
-                        {isBatchApproving ? (
-                          <LoadingSpinner className="h-3 w-3" />
-                        ) : (
-                          <CheckCheck className="h-3 w-3" />
-                        )}
-                        Approva tutti ({pendentiUser.length} giorni)
-                      </button>
-                    )}
                   </div>
                 );
               })}
