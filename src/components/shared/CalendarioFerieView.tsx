@@ -2,7 +2,7 @@
 
 // Componente Calendario Ferie/Festività condiviso tra admin e dipendente
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Check, X, Circle, Send } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, X, Circle, Send, CalendarDays, CheckCheck } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
@@ -45,6 +45,16 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
   const [sendingRequest, setSendingRequest] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [allPendingItems, setAllPendingItems] = useState<PendingItem[]>([]);
+
+  // Selezione multi-giorno (solo dipendente)
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set());
+  const [selectionType, setSelectionType] = useState<'ferie' | 'permessi'>('ferie');
+  const [selectionOre, setSelectionOre] = useState(8);
+  const [submittingSelection, setSubmittingSelection] = useState(false);
+
+  // Approvazione batch (solo admin)
+  const [batchApproving, setBatchApproving] = useState<string | null>(null);
 
   const supabase = createClient();
   const { showToast } = useToast();
@@ -304,6 +314,108 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
     }
   }
 
+  // Toggle selezione giorno (dipendente)
+  function handleToggleDay(data: string, giorno: Date) {
+    const isWeekend = giorno.getDay() === 0 || giorno.getDay() === 6;
+    const festivo = getFestivo(data);
+    if (isWeekend || festivo?.tipo === 'festivo') return;
+
+    setSelectedDays(prev => {
+      const next = new Set(prev);
+      if (next.has(data)) {
+        next.delete(data);
+      } else {
+        next.add(data);
+      }
+      return next;
+    });
+  }
+
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedDays(new Set());
+    setSelectionOre(8);
+    setSelectionType('ferie');
+  }
+
+  // Salva i giorni selezionati come ferie/permessi (dipendente)
+  async function handleSalvaGiorni() {
+    if (!currentUser || selectedDays.size === 0) return;
+
+    setSubmittingSelection(true);
+    try {
+      const response = await fetch('/api/ferie/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          giorni: Array.from(selectedDays).sort(),
+          tipo: selectionType,
+          ore: selectionOre,
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        showToast(`${result.count} giorni salvati come ${selectionType}`, 'success');
+        exitSelectionMode();
+        loadData();
+        loadAllPending(currentUser.id);
+      } else {
+        showToast('Errore durante il salvataggio', 'error');
+      }
+    } catch (error) {
+      console.error('Errore salvataggio giorni:', error);
+      showToast('Errore durante il salvataggio', 'error');
+    } finally {
+      setSubmittingSelection(false);
+    }
+  }
+
+  // Approva batch tutti i giorni pendenti di un utente (admin)
+  async function handleBatchApprova(utente: User) {
+    const itemsDaApprovare = ferieUtenti.filter(f => f.userId === utente.id && !f.validate);
+    if (itemsDaApprovare.length === 0) return;
+
+    // Raccoglie ID univoci delle presenze (odataPresenza)
+    const presenzaIds = [...new Set(itemsDaApprovare.map(f => f.odataPresenza))];
+
+    setBatchApproving(utente.id);
+    try {
+      const response = await fetch('/api/ferie/batch-approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presenzaIds,
+          nome: utente.nome,
+          cognome: utente.cognome,
+          email: utente.email,
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        // Aggiorna stato locale: tutti i giorni di questo utente diventano validati
+        setFerieUtenti(prev =>
+          prev.map(f =>
+            f.userId === utente.id ? { ...f, validate: true } : f
+          )
+        );
+        showToast(
+          `${result.count} giorni approvati${result.emailSent ? ' — email inviata' : ''}`,
+          'success'
+        );
+      } else {
+        showToast('Errore durante l\'approvazione batch', 'error');
+      }
+    } catch (error) {
+      console.error('Errore approvazione batch:', error);
+      showToast('Errore durante l\'approvazione batch', 'error');
+    } finally {
+      setBatchApproving(null);
+    }
+  }
+
   // Navigazione mesi
   function prevMonth() {
     if (mese === 1) {
@@ -369,14 +481,28 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
     const ferie = getFerieGiorno(data);
     const oggi = new Date();
     const isOggi = toISODate(oggi) === data;
+    const isSelected = selectedDays.has(data);
+    const isSelectable = selectionMode && !isWeekend && festivo?.tipo !== 'festivo';
 
     let classes = 'min-h-[100px] p-2 border border-gray-200 transition-colors ';
 
-    if (isOggi) {
+    if (isOggi && !isSelected) {
       classes += 'ring-2 ring-primary ring-inset ';
     }
 
-    if (festivo?.tipo === 'festivo') {
+    if (isSelected) {
+      classes += 'bg-blue-100 ring-2 ring-blue-500 ring-inset cursor-pointer ';
+    } else if (isSelectable) {
+      classes += 'cursor-pointer hover:bg-blue-50 ';
+      if (festivo?.tipo === 'semifestivo') {
+        classes += 'bg-orange-100 ';
+      } else if (ferie.length > 0) {
+        const tutteValidate = ferie.every(f => f.validate);
+        classes += tutteValidate ? 'bg-green-50 ' : 'bg-amber-50 ';
+      } else {
+        classes += 'bg-white ';
+      }
+    } else if (festivo?.tipo === 'festivo') {
       classes += 'bg-red-100 ';
     } else if (festivo?.tipo === 'semifestivo') {
       classes += 'bg-orange-100 ';
@@ -524,31 +650,123 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
           </button>
         </div>
 
-        {/* Tasto richiesta validazione */}
-        {totalePending > 0 && (
-          <div className="flex flex-col items-end">
+        {/* Azioni dipendente */}
+        {!isAdmin && (
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Tasto selezione multi-giorno */}
             <button
-              onClick={handleRichiestaValidazione}
-              disabled={sendingRequest}
-              className="btn-primary flex items-center gap-2 shadow-lg"
+              onClick={() => selectionMode ? exitSelectionMode() : setSelectionMode(true)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-colors ${
+                selectionMode
+                  ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
             >
-              {sendingRequest ? (
-                <LoadingSpinner className="h-4 w-4" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-              Richiedi Validazione ({totalePending})
+              <CalendarDays className="h-4 w-4" />
+              {selectionMode ? 'Annulla selezione' : 'Seleziona giorni ferie'}
             </button>
-            {(totalePendingFerie > 0 || totalePendingPermessi > 0) && (
-              <div className="text-xs text-gray-500 mt-1 text-right">
-                {totalePendingFerie > 0 && <span>{totalePendingFerie} ferie</span>}
-                {totalePendingFerie > 0 && totalePendingPermessi > 0 && <span> + </span>}
-                {totalePendingPermessi > 0 && <span>{totalePendingPermessi} permessi</span>}
+
+            {/* Tasto richiesta validazione */}
+            {totalePending > 0 && (
+              <div className="flex flex-col items-end">
+                <button
+                  onClick={handleRichiestaValidazione}
+                  disabled={sendingRequest}
+                  className="btn-primary flex items-center gap-2 shadow-lg"
+                >
+                  {sendingRequest ? (
+                    <LoadingSpinner className="h-4 w-4" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                  Richiedi Validazione ({totalePending})
+                </button>
+                {(totalePendingFerie > 0 || totalePendingPermessi > 0) && (
+                  <div className="text-xs text-gray-500 mt-1 text-right">
+                    {totalePendingFerie > 0 && <span>{totalePendingFerie} ferie</span>}
+                    {totalePendingFerie > 0 && totalePendingPermessi > 0 && <span> + </span>}
+                    {totalePendingPermessi > 0 && <span>{totalePendingPermessi} permessi</span>}
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* Pannello selezione giorni */}
+      {selectionMode && !isAdmin && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="flex items-center gap-2 text-blue-800 font-medium">
+              <CalendarDays className="h-5 w-5" />
+              <span>
+                {selectedDays.size === 0
+                  ? 'Clicca sui giorni per selezionarli'
+                  : `${selectedDays.size} giorn${selectedDays.size === 1 ? 'o' : 'i'} selezionat${selectedDays.size === 1 ? 'o' : 'i'}`}
+              </span>
+            </div>
+
+            {selectedDays.size > 0 && (
+              <>
+                {/* Tipo */}
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-sm font-medium text-gray-700">
+                    <input
+                      type="radio"
+                      name="selectionType"
+                      value="ferie"
+                      checked={selectionType === 'ferie'}
+                      onChange={() => setSelectionType('ferie')}
+                      className="accent-amber-500"
+                    />
+                    Ferie
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-sm font-medium text-gray-700">
+                    <input
+                      type="radio"
+                      name="selectionType"
+                      value="permessi"
+                      checked={selectionType === 'permessi'}
+                      onChange={() => setSelectionType('permessi')}
+                      className="accent-blue-500"
+                    />
+                    Permessi
+                  </label>
+                </div>
+
+                {/* Ore */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Ore:</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    step={0.5}
+                    value={selectionOre}
+                    onChange={e => setSelectionOre(Number(e.target.value))}
+                    className="w-16 border border-gray-300 rounded px-2 py-1 text-sm text-center"
+                  />
+                </div>
+
+                {/* Salva */}
+                <button
+                  onClick={handleSalvaGiorni}
+                  disabled={submittingSelection}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {submittingSelection ? (
+                    <LoadingSpinner className="h-4 w-4" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                  Salva
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Legenda */}
       <div className="flex items-center gap-4 text-sm flex-wrap">
@@ -597,7 +815,11 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
             const ferie = getFerieGiorno(data);
 
             return (
-              <div key={data} className={getDayClassName(data, giorno)}>
+              <div
+                key={data}
+                className={getDayClassName(data, giorno)}
+                onClick={() => selectionMode && !isAdmin ? handleToggleDay(data, giorno) : undefined}
+              >
                 {/* Numero giorno */}
                 <div className="flex items-center justify-between mb-1">
                   <span className={`text-sm font-medium ${
@@ -605,6 +827,12 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
                   }`}>
                     {giorno.getDate()}
                   </span>
+                  {/* Indicatore selezione */}
+                  {selectedDays.has(data) && (
+                    <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Check className="h-3 w-3 text-white" />
+                    </div>
+                  )}
                 </div>
 
                 {/* Festivo */}
@@ -724,27 +952,46 @@ export function CalendarioFerieView({ userId, isAdmin = false }: CalendarioFerie
                 const permessiUser = itemsUser.filter(f => f.tipo === 'permessi');
                 const tutteValidate = itemsUser.every(f => f.validate);
                 const nessunaValidata = itemsUser.every(f => !f.validate);
+                const pendentiUser = itemsUser.filter(f => !f.validate);
+                const isBatchApproving = batchApproving === u.id;
                 return (
-                  <div key={u.id} className="text-sm flex justify-between items-center">
-                    <span className="text-gray-600">{u.cognome} {u.nome[0]}.</span>
-                    <div className="flex items-center gap-2">
-                      {ferieUser.length > 0 && (
-                        <span className="text-amber-700 font-medium">
-                          F: {ferieUser.reduce((acc, f) => acc + f.ore, 0)}h
-                        </span>
-                      )}
-                      {permessiUser.length > 0 && (
-                        <span className="text-blue-700 font-medium">
-                          P: {permessiUser.reduce((acc, f) => acc + f.ore, 0)}h
-                        </span>
-                      )}
-                      {tutteValidate && (
-                        <Check className="h-4 w-4 text-green-600" />
-                      )}
-                      {!tutteValidate && !nessunaValidata && (
-                        <span className="text-xs text-gray-500">parziale</span>
-                      )}
+                  <div key={u.id} className="text-sm space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">{u.cognome} {u.nome[0]}.</span>
+                      <div className="flex items-center gap-2">
+                        {ferieUser.length > 0 && (
+                          <span className="text-amber-700 font-medium">
+                            F: {ferieUser.reduce((acc, f) => acc + f.ore, 0)}h
+                          </span>
+                        )}
+                        {permessiUser.length > 0 && (
+                          <span className="text-blue-700 font-medium">
+                            P: {permessiUser.reduce((acc, f) => acc + f.ore, 0)}h
+                          </span>
+                        )}
+                        {tutteValidate && (
+                          <Check className="h-4 w-4 text-green-600" />
+                        )}
+                        {!tutteValidate && !nessunaValidata && (
+                          <span className="text-xs text-gray-500">parziale</span>
+                        )}
+                      </div>
                     </div>
+                    {/* Pulsante approva tutti (solo admin, solo se ci sono giorni pendenti) */}
+                    {isAdmin && pendentiUser.length > 0 && (
+                      <button
+                        onClick={() => handleBatchApprova(u)}
+                        disabled={isBatchApproving}
+                        className="w-full flex items-center justify-center gap-1.5 text-xs py-1 px-2 bg-green-50 text-green-700 border border-green-200 rounded hover:bg-green-100 disabled:opacity-50 transition-colors"
+                      >
+                        {isBatchApproving ? (
+                          <LoadingSpinner className="h-3 w-3" />
+                        ) : (
+                          <CheckCheck className="h-3 w-3" />
+                        )}
+                        Approva tutti ({pendentiUser.length} giorni)
+                      </button>
+                    )}
                   </div>
                 );
               })}
